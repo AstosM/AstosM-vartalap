@@ -7,7 +7,7 @@ from google.genai import types
 
 # Load .env
 load_dotenv()
-API_KEY = os.getenv("GEMINI_API_KEY")
+API_KEY = os.getenv("AIzaSyD6c-tdr0Da6-4gwa2o8WSA9Ftn6TDPOx0")
 if not API_KEY:
     st.error("❌ GEMINI_API_KEY not set. Add it to .env or export as environment variable.")
     st.stop()
