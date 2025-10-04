@@ -1,70 +1,70 @@
 import os
-import time
+import requests
+import streamlit as st
+from dotenv import load_dotenv
 from google import genai
 from google.genai import types
-from dotenv import load_dotenv
 
-def init_client():
-    load_dotenv()
-    api_key = os.getenv("AIzaSyCxYlgND-IyD4CtRNDFouGreb4xBeaI9gA")
-    if not api_key:
-        raise ValueError("GEMINI_API_KEY not set in environment or .env")
-    client = genai.Client(api_key=api_key)
-    return client
+# Load .env
+load_dotenv()
+API_KEY = os.getenv("GEMINI_API_KEY")
+if not API_KEY:
+    st.error("⚠️ GEMINI_API_KEY not found. Add it to .env or export as env var.")
+    st.stop()
 
-def generate_video(prompt: str, model: str = "veo-3.0-generate-preview", negative_prompt: str = None) -> str:
-    """
-    Calls Gemini API to generate a video from prompt.
-    Returns a URL or path to the generated video (or writes to local file).
-    """
-    client = init_client()
+# Init Gemini client
+client = genai.Client(api_key=API_KEY)
 
-    # Create config if needed
-    config = types.GenerateVideosConfig()
-    if negative_prompt:
-        config.negative_prompt = negative_prompt
+# Streamlit config
+st.set_page_config(page_title="🎬 Gemini Video Generator", layout="centered")
+st.title("🎬 Gemini Veo Video Generator")
 
-    # Kick off long-running video generation operation
-    operation = client.models.generate_videos(
-        model=model,
-        prompt=prompt,
-        config=config,
-    )
+# Input box
+prompt = st.text_area("Enter your video prompt:", placeholder="e.g., A futuristic city with flying cars at sunset")
 
-    # The operation may not complete immediately — poll until done
-    # Depending on SDK, you may have operation.result() or operations API
-    result = operation.result()  # block until done (or timeout)
-    # result might contain video URI(s), etc.
-    # Let's assume result returns something like result.video_uris or result.outputs
+model_choice = st.selectbox(
+    "Choose model",
+    ["veo-3.0-generate-preview", "veo-3.0-fast-generate-preview"]
+)
 
-    # For demonstration, we assume one video and we can download it
-    if hasattr(result, "outputs") and result.outputs:
-        output = result.outputs[0]
-        uri = output.uri  # e.g. a GCS URI or HTTPS URL
-        # Optionally download it locally
-        local_path = download_from_uri(uri)
-        return local_path
-    else:
-        raise RuntimeError(f"No video output in result: {result}")
-
-def download_from_uri(uri: str) -> str:
-    """
-    Download a video from a URI to a local file.
-    Supports https or GCS (if authenticated).
-    """
-    import requests
-    # simple https download
+def download_video(uri: str, filename: str = "generated_video.mp4") -> str:
+    """Download video file locally from URI"""
     resp = requests.get(uri, stream=True)
     if resp.status_code != 200:
-        raise RuntimeError(f"Failed to download video from {uri}, status {resp.status_code}")
-    fname = uri.split("/")[-1]
-    with open(fname, "wb") as f:
-        for chunk in resp.iter_content(chunk_size=8192):
-            if chunk:
-                f.write(chunk)
-    return fname
+        raise RuntimeError(f"Download failed: {resp.status_code} {resp.text}")
+    with open(filename, "wb") as f:
+        for chunk in resp.iter_content(8192):
+            f.write(chunk)
+    return filename
 
-if __name__ == "__main__":
-    prompt = "A calm lake at dawn, sunlight glinting on the water, mist rising slowly, soft ambient birdsong"
-    output_path = generate_video(prompt)
-    print("Saved video to:", output_path)
+# Generate button
+if st.button("Generate Video 🎥"):
+    if not prompt.strip():
+        st.warning("Please enter a prompt first!")
+    else:
+        with st.spinner("⏳ Generating video... this may take a few minutes"):
+            try:
+                config = types.GenerateVideosConfig()
+                operation = client.models.generate_videos(
+                    model=model_choice,
+                    prompt=prompt,
+                    config=config,
+                )
+                result = operation.result()  # wait until ready
+
+                if not result.outputs:
+                    st.error("No video generated. Try again with a different prompt.")
+                else:
+                    video_uri = result.outputs[0].uri
+                    local_file = download_video(video_uri, "generated_video.mp4")
+                    st.success("✅ Video generated successfully!")
+                    st.video(local_file)
+                    st.download_button(
+                        "⬇️ Download Video",
+                        data=open(local_file, "rb").read(),
+                        file_name="gemini_video.mp4",
+                        mime="video/mp4"
+                    )
+
+            except Exception as e:
+                st.error(f"Error: {e}")
